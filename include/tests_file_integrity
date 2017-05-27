@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2013-2016, CISOfy
+# Copyright 2007-2017, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -70,20 +70,21 @@
 #
     # Test        : FINT-4315
     # Description : Check AIDE configuration file
-    if [ ! "${AIDEBINARY}" = "" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    if [ ! -z "${AIDEBINARY}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
     Register --test-no FINT-4315 --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "Check AIDE configuration file"
     if [ ${SKIPTEST} -eq 0 ]; then
         AIDE_CONFIG_LOCS="/etc /etc/aide /usr/local/etc"
         LogText "Test: search for aide.conf in ${AIDE_CONFIG_LOCS}"
         for I in ${AIDE_CONFIG_LOCS}; do
             if [ -f ${I}/aide.conf ]; then
-                 LogText "Result: found aide.conf in directory ${I}"
-                 AIDECONFIG="${I}/aide.conf"
+                LogText "Result: found aide.conf in directory ${I}"
+                AIDECONFIG="${I}/aide.conf"
             fi
         done
 
         if [ -z "${AIDECONFIG}" ]; then
-            Display --indent 6 --text "- AIDE config file" --result "${STATUS_NOT_FOUND}" --color YELLOW
+            Display --indent 6 --text "- AIDE config file" --result "${STATUS_NOT_FOUND}" --color RED
+            ReportWarning "${TEST_NO}" "No AIDE configuration file was found, needed for AIDE functionality"
         else
             LogText "Checking configuration file ${AIDECONFIG} for errors"
             FIND=$(${AIDEBINARY} --config=${AIDECONFIG} -D)
@@ -222,7 +223,7 @@
     if [ ${SKIPTEST} -eq 0 ]; then
         # LFD configuration parameters
         ENABLED=$(${GREPBINARY} "^LF_DAEMON = \"1\"" ${CSF_CONFIG})
-        if [ ! "${ENABLED}" = "" ]; then
+        if [ ! -z "${ENABLED}" ]; then
             LogText "Result: lfd service is configured to run"
             Display --indent 6 --text "- Configuration status" --result "${STATUS_ENABLED}" --color GREEN
         else
@@ -230,7 +231,7 @@
             Display --indent 6 --text "- Configuration status" --result "${STATUS_DISABLED}" --color YELLOW
         fi
         ENABLED=$(${GREPBINARY} "^LF_DIRWATCH =" ${CSF_CONFIG} | ${AWKBINARY} '{ print $3 }' | ${SEDBINARY} 's/\"//g')
-        if [ ! "${ENABLED}" = "0" -a ! "${ENABLED}" = "" ]; then
+        if [ ! "${ENABLED}" = "0" -a ! -z "${ENABLED}" ]; then
             LogText "Result: lfd directory watching is enabled (value: ${ENABLED})"
             Display --indent 6 --text "- Temporary directory watches" --result "${STATUS_ENABLED}" --color GREEN
         else
@@ -238,7 +239,7 @@
             Display --indent 6 --text "- Temporary directory watches" --result "${STATUS_DISABLED}" --color YELLOW
         fi
         ENABLED=$(${GREPBINARY} "^LF_DIRWATCH_FILE =" ${CSF_CONFIG} | ${AWKBINARY} '{ print $3 }' | ${SEDBINARY} 's/\"//g')
-        if [ ! "${ENABLED}" = "0" -a ! "${ENABLED}" = "" ]; then
+        if [ ! "${ENABLED}" = "0" -a ! -z "${ENABLED}" ]; then
             Display --indent 6 --text "- Directory/File watches" --result "${STATUS_ENABLED}" --color GREEN
         else
             Display --indent 6 --text "- Directory/File watches" --result "${STATUS_DISABLED}" --color YELLOW
@@ -269,7 +270,7 @@
 #
     # Test        : FINT-4402 (was FINT-4316)
     # Description : Check if AIDE is configured to use SHA256 or SHA512 checksums
-    if [ ! "${AIDEBINARY}" = "" -a ! "${AIDECONFIG}" = "" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    if [ ! "${AIDEBINARY}" = "" -a ! -z "${AIDECONFIG}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
     Register --test-no FINT-4402 --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "AIDE configuration: Checksums (SHA256 or SHA512)"
     if [ ${SKIPTEST} -eq 0 ]; then
         FIND=$(${GREPBINARY} -v "^#" ${AIDECONFIG} | ${EGREPBINARY} "= .*(sha256|sha512)")
@@ -306,9 +307,7 @@
 #
 #################################################################################
 #
-    Report "file_integrity_tool=${FILE_INT_TOOL}"
-    Report "file_integrity_tool_installed=${FILE_INT_TOOL_FOUND}"
     WaitForKeyPress
 #
 #================================================================================
-# Lynis - Copyright 2007-2016 Michael Boelen, CISOfy - https://cisofy.com
+# Lynis - Copyright 2007-2017 Michael Boelen, CISOfy - https://cisofy.com

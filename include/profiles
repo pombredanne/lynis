@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2013-2016, CISOfy
+# Copyright 2007-2017, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -29,6 +29,7 @@
 #################################################################################
 #
     for PROFILE in ${PROFILES}; do
+
         LogText "Reading profile/configuration ${PROFILE}"
         FIND=$(egrep "^config:|^[a-z-].*=" ${PROFILE} | sed 's/ /!space!/g')
         for CONFIGOPTION in ${FIND}; do
@@ -36,7 +37,7 @@
                 # Old style configuration
                 OPTION=$(echo ${CONFIGOPTION} | cut -d ':' -f2)
                 VALUE=$(echo ${CONFIGOPTION} | cut -d ':' -f3 | sed 's/!space!/ /g')
-              else
+            else
                 OPTION=$(echo ${CONFIGOPTION} | cut -d '=' -f1)
                 VALUE=$(echo ${CONFIGOPTION} | cut -d '=' -f2 | sed 's/!space!/ /g')
             fi
@@ -63,6 +64,17 @@
                 check-value)
                     STRING=$(echo ${VALUE} | tr -d "[" | tr -d "]" | sed "s/, /,/g")
                     CHECK_VALUE_ARRAY="${CHECK_OPTION_ARRAY} ${STRING}"
+                ;;
+
+                # Colored output
+                colors)
+                    # Quick mode (SKIP_PLUGINS) might already be set outside profile, so store in different variable
+                    SETTING_COLORS=1 # default is yes
+                    FIND=$(echo "${VALUE}" | egrep "^(0|false|no)$") && COLORS=0
+                    if [ ! -z "${FIND}" ]; then SETTING_COLORS=0; RemoveColors; fi
+                    Debug "Colors set to ${SETTING_COLORS}"
+                    AddSetting "colors" "${SETTING_COLORS}" "Colored screen output"
+                    unset SETTING_COLORS
                 ;;
 
                 # Ignore configuration data
@@ -151,6 +163,18 @@
                     AddSetting "group" "${GROUP_NAME}" "Group"
                 ;;
 
+                hostalias | host-alias)
+                    if [ ! -z "${VALUE}" ]; then Report "hostname_alias=${VALUE}"; fi
+                ;;
+
+                hostid)
+                    HOSTID="${VALUE}"
+                ;;
+
+                hostid2)
+                    HOSTID2="${VALUE}"
+                ;;
+
                 # Language
                 language | lang)
                     LogText "Language set via profile to '${VALUE}'"
@@ -174,10 +198,10 @@
                     LOG_INCORRECT_OS=${SETTING_LOG_TESTS_INCORRECT_OS}
                 ;;
 
-                # What type of machine we are scanning (eg. desktop, server, server with storage)
+                # What type of machine we are scanning (eg. personal, workstation or server)
                 machine-role | machine_role)
                     MACHINE_ROLE="${VALUE}"
-                    AddSetting "machine-role" "${MACHINE_ROLE}" "Machine role (server or desktop)"
+                    AddSetting "machine-role" "${MACHINE_ROLE}" "Machine role (personal, workstation or server)"
                 ;;
 
                 # Define if any found NTP daemon instance is configured as a server or client
@@ -199,9 +223,9 @@
 
                 # Plugin directory
                 plugindir | plugin-dir)
-                    if [ "${PLUGINDIR}" = "" ]; then
+                    if IsEmpty "${PLUGINDIR}"; then
                         PLUGINDIR="${VALUE}"
-                      else
+                    else
                         LogText "Plugin directory was already set to ${PLUGINDIR} before (most likely as a program argument), not overwriting"
                     fi
                     AddSetting "plugin-dir" "${PLUGINDIR}" "Plugin directory"
@@ -335,6 +359,17 @@
                     AddSetting "update-local-version-info" "${UPDATE_LOCAL_VERSION_INFO}" "Update information: local file for latest release"
                 ;;
 
+                # Colored output
+                upload)
+                    SETTING_UPLOAD=no # default
+                    FIND=$(echo "${VALUE}" | egrep "^(1|true|yes)$") && UPLOAD_DATA=1
+                    if [ ! -z "${FIND}" ]; then SETTING_UPLOAD=1; fi
+                    Debug "Upload set to ${SETTING_UPLOAD}"
+                    AddSetting "upload" "${SETTING_UPLOAD}" "Data upload after scanning"
+                    unset SETTING_UPLOAD
+                ;;
+
+
                 # Compression of uploads (enabled by default)
                 upload_compressed | compressed-uploads)
                     if [ "${VALUE}" = "0" ]; then COMPRESSED_UPLOADS=0; fi
@@ -429,23 +464,20 @@
 #################################################################################
 #
     # Add group name to report
-    if [ ! "${GROUP_NAME}" = "" ]; then
-        Report "group=${GROUP_NAME}"
-    fi
+    if [ ! -z "${GROUP_NAME}" ]; then Report "group=${GROUP_NAME}"; fi
 #
 #################################################################################
 #
     # Set default values (only if not configured in profile)
-    if [ "${MACHINE_ROLE}" = "" ]; then
+    if [ -z "${MACHINE_ROLE}" ]; then
         MACHINE_ROLE="server"
         LogText "Set option to default value: MACHINE_ROLE --> ${MACHINE_ROLE}"
     fi
 
-    if [ "${NTPD_ROLE}" = "" ]; then
+    if [ -z "${NTPD_ROLE}" ]; then
         NTPD_ROLE="client"
         LogText "Set option to default value: NTPD_ROLE --> ${NTPD_ROLE}"
     fi
-
 #
 #################################################################################
 #
@@ -461,8 +493,7 @@
 #
     Display --indent 2 --text "- Checking profiles..." --result "DONE" --color GREEN
 
-
 LogTextBreak
 
 #================================================================================
-# Lynis - Copyright 2007-2016, Michael Boelen - CISOfy, https://cisofy.com
+# Lynis - Security Auditing and System Hardening for Linux and UNIX - https://cisofy.com

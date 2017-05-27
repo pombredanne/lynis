@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2013-2016, CISOfy
+# Copyright 2007-2017, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -74,7 +74,7 @@
 #
     # Test        : SNMP-3306
     # Description : Determine SNMP communities
-    if [ ! "${SNMP_DAEMON_CONFIG}" = "" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    if [ ! -z "${SNMP_DAEMON_CONFIG}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
     Register --test-no SNMP-3306 --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "Check SNMP communities"
     if [ ${SKIPTEST} -eq 0 ]; then
         WARN=0
@@ -106,4 +106,4 @@ WaitForKeyPress
 
 #
 #================================================================================
-# Lynis - Copyright 2007-2016 Michael Boelen, CISOfy - https://cisofy.com
+# Lynis - Copyright 2007-2017 Michael Boelen, CISOfy - https://cisofy.com

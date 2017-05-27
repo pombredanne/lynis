@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2013-2016, CISOfy
+# Copyright 2007-2017, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -52,16 +52,16 @@
         HARDEN_COMPILERS_NEEDED=0
         if [ ${COMPILER_INSTALLED} -eq 0 ]; then
             LogText "Result: no compilers found"
-          else
+        else
             # as
             if [ ! -z "${ASBINARY}" ]; then
                 LogText "Test: Check file permissions for as (Assembler)"
                 if IsWorldExecutable ${ASBINARY}; then
                     LogText "Binary: found ${ASBINARY} (world executable)"
-                    Report "compiler[]=${ASBINARY}"
+                    Report "compiler_world_executable[]=${ASBINARY}"
                     AddHP 2 3
                     HARDEN_COMPILERS_NEEDED=1
-                  else
+                else
                     AddHP 3 3
                 fi
             fi
@@ -70,10 +70,10 @@
                 LogText "Test: Check file permissions for GCC compiler"
                 if IsWorldExecutable ${GCCBINARY}; then
                     LogText "Binary: found ${GCCBINARY} (world executable)"
-                    Report "compiler[]=${GCCBINARY}"
+                    Report "compiler_world_executable[]=${GCCBINARY}"
                     AddHP 2 3
                     HARDEN_COMPILERS_NEEDED=1
-                  else
+                else
                     AddHP 3 3
                 fi
             fi
@@ -105,9 +105,15 @@
             AddHP 3 3
         else
             LogText "Result: no malware scanner found"
+            if [ "${MACHINE_ROLE}" = "personal" ]; then
+                Display --indent 4 --text "- Installed malware scanner" --result "${STATUS_NOT_FOUND}" --color YELLOW
+            else
+                Display --indent 4 --text "- Installed malware scanner" --result "${STATUS_NOT_FOUND}" --color RED
+            fi
             Display --indent 4 --text "- Installed malware scanner" --result "${STATUS_NOT_FOUND}" --color RED
             ReportSuggestion ${TEST_NO} "Harden the system by installing at least one malware scanner, to perform periodic file system scans" "-" "Install a tool like rkhunter, chkrootkit, OSSEC"
             AddHP 1 3
+            LogText "Result: no malware scanner found"
         fi
     fi
 #

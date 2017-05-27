@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2013-2016, CISOfy
+# Copyright 2007-2017, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -42,7 +42,7 @@
                 LogText "  Actual permissions: ${FILEVALUE}"
                 LogText "  Result: $PERMS"
                 if [ "${PERMS}" = "FILE_NOT_FOUND" ]; then
-                    Display --indent 4 --text "${I}" --result "${STATUS_NOT_FOUND}" --color WHITE
+                    if IsVerbose; then Display --indent 4 --text "${I}" --result "${STATUS_NOT_FOUND}" --color WHITE; fi
                 elif [ "${PERMS}" = "OK" ]; then
                     Display --indent 4 --text "${I}" --result "${STATUS_OK}" --color GREEN
                 elif [ "${PERMS}" = "BAD" ]; then
@@ -62,4 +62,4 @@ WaitForKeyPress
 
 #
 #================================================================================
-# Lynis - Copyright 2007-2016, CISOfy - https://cisofy.com
+# Lynis - Copyright 2007-2017, CISOfy - https://cisofy.com

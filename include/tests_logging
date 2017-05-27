@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2013-2016, CISOfy
+# Copyright 2007-2017, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -189,7 +189,7 @@
         LogText "Test: Searching kernel logger daemon (klogd)"
         if [ ${RSYSLOG_RUNNING} -eq 0 -a ${SYSTEMD_JOURNAL_RUNNING} -eq 0 ]; then
             # Search for klogd, but ignore other lines related to klogd (like dd with input/output file)
-            #FIND=`${PSBINARY} ax | ${GREPBINARY} "klogd" | ${GREPBINARY} -v "dd" | ${GREPBINARY} -v "grep"`
+            #FIND=$(${PSBINARY} ax | ${GREPBINARY} "klogd" | ${GREPBINARY} -v "dd" | ${GREPBINARY} -v "grep")
             IsRunning klogd
             if [ ${RUNNING} -eq 1 ]; then
                 LogText "Result: klogd running"
@@ -281,21 +281,21 @@
 #
     # Test        : LOGG-2150
     # Description : Checking log directories rotated with logrotate
-    if [ ! "${LOGROTATEBINARY}" = "" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    if HasData "${LOGROTATEBINARY}"; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
     Register --test-no LOGG-2150 --weight L --preqs-met ${PREQS_MET} --network NO --category security --description "Checking directories in logrotate configuration"
     if [ ${SKIPTEST} -eq 0 ]; then
         LogText "Test: Checking which directories can be found in logrotate configuration"
-        FIND=`${LOGROTATEBINARY} -d -v /etc/logrotate.conf 2>&1 | ${EGREPBINARY} "considering log|skipping" | ${GREPBINARY} -v '*' | ${SORTBINARY} -u | ${AWKBINARY} '{ if ($2=="log") { print $3 } }' | ${SEDBINARY} 's@/[^/]*$@@g' | ${SORTBINARY} -u`
-        if [ "${FIND}" = "" ]; then
+        FIND=$(${LOGROTATEBINARY} -d -v ${ROOTDIR}etc/logrotate.conf 2>&1 | ${EGREPBINARY} "considering log|skipping" | ${GREPBINARY} -v '*' | ${SORTBINARY} -u | ${AWKBINARY} '{ if ($2=="log") { print $3 } }' | ${SEDBINARY} 's@/[^/]*$@@g' | ${SORTBINARY} -u)
+        if IsEmpty "${FIND}" ]; then
             LogText "Result: nothing found"
-          else
+        else
             LogText "Result: found one or more directories (via logrotate configuration)"
-            for I in ${FIND}; do
-                if [ -d ${I} ]; then
-                    LogText "Directory found: ${I}"
-                    Report "log_directory[]=${I}"
-                  else
-                    LogText "Directory could not be found: ${I}"
+            for DIR in ${FIND}; do
+                if [ -d ${DIR} ]; then
+                    LogText "Directory found: ${DIR}"
+                    Report "log_directory[]=${DIR}"
+                else
+                    LogText "Result: Directory could not be found: ${DIR}"
                 fi
             done
         fi
@@ -319,7 +319,7 @@
 
             # Try name resolving if no entry is present in local host file
             LogText "Result: Checking for loghost via name resolving"
-            FIND=`getent hosts loghost | ${GREPBINARY} loghost`
+            FIND=$(getent hosts loghost | ${GREPBINARY} loghost)
             if [ ! -z "${FIND}" ]; then
                 SOLARIS_LOGHOST_FOUND=1
                 LogText "Result: name resolving was succesful"
@@ -379,7 +379,7 @@
                 AddHP 5 5
                 Display --indent 2 --text "- Checking remote logging" --result "${STATUS_ENABLED}" --color GREEN
             fi
-          else
+        else
             LogText "Result: test skipped, file ${SYSLOGD_CONF} not found"
         fi
     fi

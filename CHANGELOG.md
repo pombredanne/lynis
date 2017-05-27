@@ -1,6 +1,242 @@
 Lynis Changelog
 ===============
 
+Security notice: please run version 2.5.0 or later
+
+
+Lynis 2.5.1 (not released yet)
+
+Changes:
+- Hebrew translation by Dolev Farhi
+- Improved detection of SSL certificate files
+
+Tests:
+--------
+* BOOT-5104 - Added support for macOS
+* HTTP-6716 - Improved log message
+
+---------------------------------------------------------------------------------
+
+Lynis 2.5.0 (2017-05-03)
+
+During the development of this release, the project got informed about a flaw
+that possibly could be abused by a local attacker. Even with the small risk of
+success, upgrading is highly recommended. See details on
+[CVE-2017-8108](https://cisofy.com/security/cve/cve-2017-8108/)
+
+This release is a special maintenance release with focus on cleaning up the code
+for readability and future expansion.
+
+Changes:
+--------
+* Use ROOTDIR variable instead of fixed paths
+* Introduction of IsEmpty and HasData functions for readability of code
+* Renamed some variables to better indicate their purpose (counting, data type)
+* Removal of unused code and comments
+* Deleted unused tests from database file
+* Correct levels of identation
+* Support for older mac OS X versions (Lion and Mountain Lion)
+* Initialized variables for more binaries
+* Additional sysctls are tested
+
+Tests:
+------
+* MALW-3280 - Extended test with Symantec components
+* PKGS-7332 - Detection of macOS ports tool and installed packages
+* TOOL-5120 - Snort detection
+* TOOL-5122 - Snort configuration file
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.8 (2017-03-29)
+
+Changes:
+* More PHP paths added
+* Minor changes to text
+* Show atomic test in report
+
+Tests:
+------
+* MAIL-8820 - New Postfix configuration check
+* TOOL-5002 - Extended Puppet detection
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.7 (2017-03-22)
+
+Changes:
+* Minor code cleanups
+
+Tests:
+------
+* BANN-7126 - Added more words to test for
+* CUPS-2308 - Improve logging for CUPS configuration test, removed exception handler
+* HTTP-6641 - Support detection for Apache module mod_reqtimeout
+* PKGS-7388 - Minor change to detect security repositories
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.6 (2017-03-15)
+
+Changes:
+--------
+* Added FileInstalledByPackage function (dpkg and rpm supported)
+* Mark Arch Linux version as rolling release (instead of unknown)
+* Support for Manjaro Linux
+* Escape files when testing if they are readable
+* Code cleanups
+
+Tests:
+------
+* CRYP-7902 - Test more certificates names, but only if they are not part of a package
+* FILE-7524 - Reduce standard screen output for file permissions check
+* MALW-3280 - Added Avira detection as a malware scanner
+* NAME-4018 - Only perform name services test when resolv.conf file exists
+* PKGS-7387 - Check all repositories if they use GPG signing
+* SCHD-7704 - Permission checks
+* TIME-3104 - Check permissions before open files
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.5 (2017-03-09)
+
+Changes:
+--------
+* Allow host alias to be specified in profile
+* Code readability enhancements
+* Solaris support has been improved
+
+Tests:
+------
+* AUTH-9328 - Add missing 0027 and 0077 umasks
+* BOOT-5104 - Add initsplash and minor code enhancements
+* DBS-1882  - Include Redis configuration file
+* FIRE-4502 - Improved detection for iptables modules when using OpenVZ
+* PKGS-7381 - Enhanced package audit for FreeBSD
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.4 (2017-03-01)
+
+Changes:
+--------
+* Fix for upload function to be used from profile
+* Reduce screen output for mail section, unless --verbose is used
+* Code cleanups and removed 'update release' command
+
+Tests:
+------
+* AUTH-9308 - Improved test for sulogin string (Debian systems)
+* FILE-6372 - Properly deal with comment on lines in /etc/fstab
+* MAIL-8817 - New test to check Postfix configuration for errors
+* SSH-7408  - Corrected SSH check
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.3 (2017-02-22)
+
+Changes:
+--------
+* Colored output can now be tuned with profile (colors=yes/no)
+* Allow data upload to be set as a profile option
+
+Tests:
+------
+* AUTH-9308 - Improved test for sulogin string
+* MAIL-8818 - Test if Linux version is known before comparing in Postfix banner
+* TIME-3116 - Skip stratum 16 items for time pools
+* TIME-3148 - New test to detect TZ variable
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.2 (2017-02-15)
+
+Changes:
+--------
+* Properly detect SSH daemon version
+
+Tests:
+------
+* AUTH-9208 - Removed double logging
+* AUTH-9222 - Improve logging for double groups
+* AUTH-9226 - Improve logging for double groups
+* BOOT-5177 - Sort systemctl unit files to make them unique
+* DBS-1818  - New test to detect MongoDB
+* DBS-1820  - New test for MongoDB authentication
+* FIRE-4512 - Lowered minimum number of iptables firewall rules
+* FIRE-4586 - Fix applied when searching for "-j LOG"
+* HRDN-7222 - Changed reporting key of world executable compilers
+* SSH-7408  - Added filtering for PermitRootLogin (prohibit-password, OpenSSH 7.0)
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.1 (2017-02-09)
+
+Changes:
+--------
+* Generic code improvements
+* Improved the update check and display
+* Finish, Portuguese, and Turkish translation
+* Extended support and tests for DragonFlyBSD
+* Option to configure hostid and hostid2 in profile
+* Support for Trend Micro and Cylance (macOS)
+* Remove comments at end of nginx configuration
+* Used machine ID to create host ID when no SSH keys are available
+* Added detection of iptables-save to binaries
+
+Tests:
+------
+* FIRE-4586 - Check logging for firewall components
+* KRNL-5788 - Remove exception and style improvements
+* KRNL-5830 - Improved logging
+
+---------------------------------------------------------------------------------
+
+Lynis 2.4.0 (2016-10-27)
+
+Exactly one month after previous release, the Lynis project is proud to announce
+a new release. This release had the specific focus to improve support for macOS
+users. Thanks to testers and contributors to make this possible.
+
+New:
+----
+* New group "system integrity" added
+* Support for clamconf utility
+* Chinese translation (language=cn)
+* New command "upload-only" to upload just the data instead of a full audit
+* Enhanced support for macOS, including HostID2 generation for macOS
+* Support for CoreOS
+* Detection for pkg binary (FreeBSD)
+* New command: lynis show hostids (show host ID)
+* New command: lynis show environment (hardware, VM, or container type)
+* New command: lynis show os (show operating system details)
+
+Changes:
+--------
+* Several new sysctl values have been added to the default profile
+* Existing tests have been enhanced to support macOS
+
+Tests:
+------
+* AUTH-9234 - Support for macOS user gathering
+* BOOT-5139 - Support for machine roles in LILO test
+* BOOT-5202 - Improve uptime detection for macOS and others
+* FIRE-4518 - Improve pf detection and mark as root-only test
+* FIRE-4530 - Don't show error on screen for missing IPFW sysctl key
+* FIRE-4534 - Check Little Snitch on macOS
+* INSE-8050 - Test for insecure services on macOS
+* MACF-6208 - Allow non-privileged execution and filter permission issues
+* MALW-3280 - Detection for Avast and Bitdefender daemon on macOS
+* NETW-3004 - Support for macOS
+* PKGS-7381 - Improve test for pkg audit on FreeBSD
+* TIME-3104 - Chrony support extended
+
+Plugins (community and commercial):
+-----------------------------------
+* PLGN-1430 - Gather installed software packages for macOS
+* PLGN-4602 - Support for Clam definition check on macOS
+
+---------------------------------------------------------------------------------
 
 Lynis 2.3.4 (2016-09-27)
 
