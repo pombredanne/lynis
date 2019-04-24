@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2007-2017, CISOfy
+# Copyright 2007-2019, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -483,20 +483,39 @@
 #################################################################################
 #
     # Test        : AUTH-9252
-    # Description : Check for sudoers file permissions
+    # Description : Check ownership and permissions for sudo configuration files
     if [ ! -z "${SUDOERS_FILE}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
-    Register --test-no AUTH-9252 --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "Check sudoers file"
+    Register --test-no AUTH-9252 --preqs-met ${PREQS_MET} --weight L --network NO --root-only YES --category security --description "Check ownership and permissions for sudo configuration files"
     if [ ${SKIPTEST} -eq 0 ]; then
-        LogText "Test: checking sudoers file (${SUDOERS_FILE}) permissions"
-        FIND=$(ls -l ${SUDOERS_FILE} | ${CUTBINARY} -c 2-10)
-        LogText "Result: Found file permissions: ${FIND}"
-        if [ "${FIND}" = "rw-------" -o "${FIND}" = "rw-rw----" -o "${FIND}" = "r--r-----" ]; then
-            LogText "Result: file ${SUDOERS_FILE} has correct permissions"
-            Display --indent 4 --text "- Check sudoers file permissions" --result "${STATUS_OK}" --color GREEN
-        else
-            LogText "Result: file has possibly unsafe file permissions"
-            Display --indent 4 --text "- Check sudoers file permissions" --result "${STATUS_WARNING}" --color RED
+        SUDO_CONFIG_FILES="${SUDOERS_FILE}"
+        SUDOERS_D="${SUDOERS_FILE}.d"
+        if [ -d "${SUDOERS_D}" ]; then
+            LogText "Test: checking drop-in directory (${SUDOERS_D})"
+            FIND=$(${LSBINARY} -ld ${SUDOERS_D} | ${CUTBINARY} -c 2-10)
+            FIND2=$(${LSBINARY} -nd ${SUDOERS_D} | ${AWKBINARY} '{print $3$4}')
+            LogText "Result: Found directory permissions: ${FIND} and owner UID GID: ${FIND2}"
+            if [ "${FIND}" = "rwxrwx---" -o "${FIND}" = "rwxr-x---" -o "${FIND}" = "rwx------" ] && [ "${FIND2}" = "00" ]; then
+                LogText "Result: directory ${SUDOERS_D} permissions/ownership OK"
+                Display --indent 4 --text "- Permissions for directory: ${SUDOERS_D}" --result "${STATUS_OK}" --color GREEN
+            else
+                LogText "Result: directory has possibly unsafe permissions/ownership"
+                Display --indent 4 --text "- Permissions for directory: ${SUDOERS_D}" --result "${STATUS_WARNING}" --color RED
+            fi
+            SUDO_CONFIG_FILES="${SUDO_CONFIG_FILES} $(${FINDBINARY} ${SUDOERS_D} -type f -print)"
         fi
+        for f in ${SUDO_CONFIG_FILES}; do
+            LogText "Test: checking file (${f})"
+            FIND=$(${LSBINARY} -l ${f} | ${CUTBINARY} -c 2-10)
+            FIND2=$(${LSBINARY} -n ${f} | ${AWKBINARY} '{print $3$4}')
+            LogText "Result: Found file permissions: ${FIND} and owner UID GID: ${FIND2}"
+            if [ "${FIND}" = "rw-------" -o "${FIND}" = "rw-rw----" -o "${FIND}" = "r--r-----" ] && [ "${FIND2}" = "00" ]; then
+                LogText "Result: file ${f} permissions/ownership OK"
+                Display --indent 4 --text "- Permissions for: ${f}" --result "${STATUS_OK}" --color GREEN
+            else
+                LogText "Result: file has possibly unsafe permissions/ownership"
+                Display --indent 4 --text "- Permissions for: ${f}" --result "${STATUS_WARNING}" --color RED
+            fi
+        done
     fi
 #
 #################################################################################
@@ -679,25 +698,32 @@
 #
     # Test        : AUTH-9278
     # Description : Search LDAP support in PAM files
-    Register --test-no AUTH-9278 --weight L --network NO --category security --description "Checking LDAP pam status"
+    Register --test-no AUTH-9278 --weight L --network NO --category security --description "Determine LDAP support in PAM files"
     if [ ${SKIPTEST} -eq 0 ]; then
-        LogText "Test: checking presence /etc/pam.d/common-auth"
-        if [ -f /etc/pam.d/common-auth ]; then
-            LogText "Result: file /etc/pam.d/common-auth exists"
-            LogText "Test: checking presence LDAP module"
-            FIND=$(${GREPBINARY} "^auth.*ldap" /etc/pam.d/common-auth)
-            if [ ! "${FIND}" = "" ]; then
-                LogText "Result: LDAP module present"
-                LogText "Output: ${FIND}"
-                Display --indent 2 --text "- LDAP module in PAM" --result "${STATUS_FOUND}" --color GREEN
-                LDAP_AUTH_ENABLED=1
-                LDAP_PAM_ENABLED=1
+        AUTH_FILES="${ROOTDIR}etc/pam.d/common-auth ${ROOTDIR}etc/pam.d/system-auth"
+        for FILE in ${AUTH_FILES}; do
+            LogText "Test: checking presence ${FILE}"
+            if [ -f ${FILE} ]; then
+                LogText "Result: file ${FILE} exists"
+                LogText "Test: checking presence LDAP module"
+                FIND=$(${GREPBINARY} "^auth.*ldap" ${FILE})
+                if [ ! -z "${FIND}" ]; then
+                    LogText "Result: LDAP module present"
+                    LogText "Output: ${FIND}"
+                    LDAP_AUTH_ENABLED=1
+                    LDAP_PAM_ENABLED=1
+                else
+                    LogText "Result: LDAP module not found"
+                fi
             else
-                LogText "Result: LDAP module not found"
-                Display --indent 2 --text "- LDAP module in PAM" --result "${STATUS_NOT_FOUND}" --color WHITE
+                LogText "Result: file ${FILE} not found, skipping test"
             fi
+        done
+
+        if [ ${LDAP_PAM_ENABLED} -eq 1 ]; then
+            Display --indent 2 --text "- LDAP module in PAM" --result "${STATUS_FOUND}" --color GREEN
         else
-            LogText "Result: file /etc/pam.d/common-auth not found, skipping test"
+            Display --indent 2 --text "- LDAP module in PAM" --result "${STATUS_NOT_FOUND}" --color WHITE
         fi
     fi
 #
@@ -720,6 +746,10 @@
                     FIND2=$(passwd --all --status 2> /dev/null | ${AWKBINARY} '{ if ($2=="NP") print $1 }')
                     ;;
             esac
+        elif [ ${OS_REDHAT_OR_CLONE} -eq 1 ]; then
+            PREQS_MET="YES"
+            FIND=$(for I in $(${AWKBINARY} -F: '{print $1}' ${ROOTDIR}etc/passwd) ; do passwd -S $I | ${AWKBINARY} '{ if ($2=="PS" && $5=="99999") print $1 }' ; done)
+            FIND2=$(for I in $(${AWKBINARY} -F: '{print $1}' ${ROOTDIR}etc/passwd) ; do passwd -S $I | ${AWKBINARY} '{ if ($2=="NP") print $1 }' ; done)
         else
             LogText "Result: skipping test for this Linux version"
             ReportManual "AUTH-9282:01"
@@ -756,7 +786,7 @@
     Register --test-no AUTH-9283 --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "Checking accounts without password"
     if [ ${SKIPTEST} -eq 0 ]; then
         LogText "Test: Checking passwordless accounts"
-        if [ "${FIND2}" = "" ]; then
+        if [ -z "${FIND2}" ]; then
             LogText "Result: all accounts seem to have a password"
             Display --indent 2 --text "- Accounts without password" --result "${STATUS_OK}" --color GREEN
         else
@@ -776,7 +806,11 @@
     # Description : Check user password aging
     # Notes       : MIN = minimum age, avoid rotation of passwords too quickly
     #             : MAX = maximum age, ensure regular change of passwords
-    if [ -f ${ROOTDIR}etc/login.defs ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    PREQS_MET="NO"
+    if [ -f ${ROOTDIR}etc/login.defs ]; then
+        PREQS_MET="YES"
+        # Future TODO: check if PAM overrule these settings
+    fi
     Register --test-no AUTH-9286 --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "Checking user password aging"
     if [ ${SKIPTEST} -eq 0 ]; then
         LogText "Test: Checking PASS_MIN_DAYS option in ${ROOTDIR}etc/login.defs"
@@ -958,7 +992,7 @@
                     # Mark test as performed only when at least 1 target exists (e.g. Ubuntu 14.04 has limited systemd support)
                     TEST_PERFORMED=1
                     LogText "Result: found target ${I}"
-                    FIND=$(${EGREPBINARY} "^ExecStart=" ${FILE} | ${GREPBINARY} "/sulogin")
+                    FIND=$(${EGREPBINARY} "^ExecStart=" ${FILE} | ${GREPBINARY} "sulogin")
                     if [ "${FIND}" = "" ]; then
                         LogText "Result: did not find sulogin specified, possible risk of getting into single user mode without authentication"
                     else
@@ -1196,8 +1230,8 @@
             if [ ${FOUND} -eq 1 ]; then
                 if [ ${WEAK_UMASK} -eq 0 ]; then
                     Display --indent 4 --text "- umask (/etc/login.conf)" --result "${STATUS_OK}" --color GREEN
-                  else
-                    Display --indent 4 --text "- umask (/etc/login.conf)" --result WEAK --color YELLOW
+                else
+                    Display --indent 4 --text "- umask (/etc/login.conf)" --result "${STATUS_WEAK}" --color YELLOW
                     ReportSuggestion ${TEST_NO} "Umask in /etc/login.conf could be more strict like 027"
                 fi
             else
@@ -1358,6 +1392,50 @@
             Display --indent 2 --text "- Logging failed login attempts" --result "${STATUS_DISABLED}" --color YELLOW
             #ReportSuggestion ${TEST_NO} "Configure failed login attempts to be logged in /var/log/faillog"
             AddHP 0 1
+        fi
+    fi
+#
+#################################################################################
+#
+    # Test        : AUTH-9409
+    # Description : Check for doas file
+    DOAS_FILE=""
+    Register --test-no AUTH-9409 --os OpenBSD --weight L --network NO --category security --description "Checking /etc/doas.conf file"
+    if [ ${SKIPTEST} -eq 0 ]; then
+        FOUND=0
+        LogText "Test: checking presence /etc/doas.conf"
+        if [ -f /etc/doas.conf ]; then
+        DOAS_FILE=/etc/doas.conf
+            FOUND=1
+            LogText "Result: file /etc/doas.conf found"
+        else
+            LogText "Result: file /etc/doas.conf not found"
+        fi
+        if [ ${FOUND} -eq 1 ]; then
+            LogText "Result: /etc/doas.conf file found"
+            Display --indent 2 --text "- doas file" --result "${STATUS_FOUND}" --color GREEN
+        else
+            LogText "Result: doas file NOT found"
+            Display --indent 2 --text "- doas file" --result "${STATUS_NOT_FOUND}" --color YELLOW
+        fi
+    fi
+#
+#################################################################################
+#
+    # Test        : AUTH-9410
+    # Description : Check for doas file permissions
+    if [ ! -z "${DOAS_FILE}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    Register --test-no AUTH-9410 --os OpenBSD --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "Check /etc/doas.conf file permissions"
+    if [ ${SKIPTEST} -eq 0 ]; then
+        LogText "Test: checking /etc/doas.conf permissions"
+        FIND=$(ls -l ${DOAS_FILE} | ${CUTBINARY} -c 2-10)
+        LogText "Result: Found /etc/doas.conf file permissions: ${FIND}"
+        if [ "${FIND}" = "rw-------" -o "${FIND}" = "rw-rw----" -o "${FIND}" = "r--r-----" ]; then
+            LogText "Result: file /etc/doas.conf has correct permissions"
+            Display --indent 4 --text "- Check doas file permissions" --result "${STATUS_OK}" --color GREEN
+        else
+            LogText "Result: file has possibly unsafe file permissions"
+            Display --indent 4 --text "- Check doas file permissions" --result "${STATUS_WARNING}" --color RED
         fi
     fi
 #

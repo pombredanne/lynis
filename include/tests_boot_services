@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2007-2017, CISOfy
+# Copyright 2007-2019, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -30,7 +30,9 @@
     BOOT_LOADER_FOUND=0
     BOOT_LOADER_SEARCHED=0
     GRUB_VERSION=0
-    SERVICE_MANAGER="unknown"
+    if [ -z "${SERVICE_MANAGER}" ]; then
+        SERVICE_MANAGER="unknown"
+    fi
 #
 #################################################################################
 #
@@ -69,8 +71,10 @@
         case ${OS} in
             "Linux")
                 if [ -f /proc/1/cmdline ]; then
-                    FILENAME=$(${AWKBINARY} '/(^\/|init)/ { print $1 }' /proc/1/cmdline)
-                    LogText "Result: cmdline found = ${FILENAME}"
+                    OUTPUT=$(${AWKBINARY} '/(^\/|init)/ { print $1 }' /proc/1/cmdline | ${TRBINARY} '\0' ' ' | ${SEDBINARY} 's/ $//')
+                    LogText "Result: cmdline found = ${OUTPUT}"
+                    FILENAME=$(echo "${OUTPUT}" | ${AWKBINARY} '{print $1}')
+                    LogText "Result: file on disk = ${FILENAME}"
                     ISFILE=$(echo ${FILENAME} | ${GREPBINARY} "^/")
                     if [ ! -z "${ISFILE}" ]; then
                         if [ -L ${ISFILE} ]; then
@@ -85,27 +89,32 @@
                     if [ ! -z "${FILENAME}" ]; then
                         SHORTNAME=$(echo ${FILENAME} | ${AWKBINARY} -F/ '{ print $NF }')
                         LogText "Found: ${SHORTNAME}"
-                        case ${SHORTNAME} in
-                            "init" | "initsplash")
-                                SERVICE_MANAGER="SysV Init"
-                            ;;
-                            systemd)
-                                SERVICE_MANAGER="systemd"
-                            ;;
-                            upstart)
-                                SERVICE_MANAGER="upstart"
-                            ;;
-                            *)
-                                CONTAINS_SYSTEMD=$(echo ${SHORTNAME} | ${GREPBINARY} "systemd")
+                        if [ "${SERVICE_MANAGER}" = "unknown" ]; then
+                            case ${SHORTNAME} in
+                                busybox)
+                                    SERVICE_MANAGER="busybox"
+                                ;;
 
-                                if [ ! -z "${CONTAINS_SYSTEMD}" ]; then
+                                "init" | "initsplash")
+                                    SERVICE_MANAGER="SysV Init"
+                                ;;
+                                systemd)
                                     SERVICE_MANAGER="systemd"
-                                else
-                                    LogText "Found ${SHORTNAME}. Unclear what service manager this is"
-                                    ReportException "${TEST_NO}:001" "Unknown service manager"
-                                fi
-                            ;;
-                        esac
+                                ;;
+                                upstart)
+                                    SERVICE_MANAGER="upstart"
+                                ;;
+                                *)
+                                    CONTAINS_SYSTEMD=$(echo ${SHORTNAME} | ${GREPBINARY} "systemd")
+                                    if [ ! -z "${CONTAINS_SYSTEMD}" ]; then
+                                        SERVICE_MANAGER="systemd"
+                                    else
+                                        LogText "Found ${SHORTNAME}. Unclear what service manager this is"
+                                        ReportException "${TEST_NO}:001" "Unknown service manager"
+                                    fi
+                                ;;
+                            esac
+                        fi
                     else
                         LogText "Result: /proc/1/cmdline seems to be empty"
                         ReportException "${TEST_NO}:002" "No data found in /proc/1/cmdline"
@@ -116,7 +125,7 @@
                     if [ -f /usr/bin/init-openrc ]; then SERVICE_MANAGER="openrc"; fi
                 fi
             ;;
-            "DragonFly" | "NetBSD" | "FreeBSD")
+            "DragonFly" | "NetBSD" | "FreeBSD" | "OpenBSD")
                 if [ -x /sbin/init -a -d ${ROOTDIR}etc/rc.d -a -f ${ROOTDIR}etc/rc ]; then
                     SERVICE_MANAGER="bsdrc"
                 fi
@@ -144,6 +153,7 @@
     # Description : Check if boot.efi is found on macOS/macOS
     Register --test-no BOOT-5106 --os "macOS" --weight L --network NO --root-only YES --category security --description "Check EFI boot file on Mac OS X/macOS"
     if [ ${SKIPTEST} -eq 0 ]; then
+        BOOT_LOADER_SEARCHED=1
         FileExists ${ROOTDIR}System/Library/CoreServices/boot.efi
         if [ ${FILE_FOUND} -eq 1 ]; then
             LogText "Result: found macOS/Mac OS X boot.efi file"
@@ -158,6 +168,7 @@
     # Description : Check for Syslinux
     Register --test-no BOOT-5108 --os "Linux" --weight L --network NO --root-only YES --category security --description "Check Syslinux as bootloader"
     if [ ${SKIPTEST} -eq 0 ]; then
+        BOOT_LOADER_SEARCHED=1
         FileExists ${ROOTDIR}boot/syslinux/syslinux.cfg
         if [ ${FILE_FOUND} -eq 1 ]; then
             LogText "Result: found Syslinux"
@@ -224,6 +235,23 @@
             if [ ${UEFI_TESTS_PERFORMED} -eq 1 ]; then
                 Display --indent 2 --text "- Checking UEFI boot" --result "${STATUS_DISABLED}" --color WHITE
             fi
+        fi
+    fi
+#
+#################################################################################
+#
+    # Test        : BOOT-5117
+    # Description : Check for systemd-boot boot loader
+    if [ ! "${BOOTCTLBINARY}" = "" -a ${HAS_SYSTEMD} -eq 1 -a ${UEFI_BOOTED} -eq 1 ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    Register --test-no BOOT-5117 --preqs-met ${PREQS_MET} --os "Linux" --weight L --network NO --category security --description "Check for systemd-boot bootloader presence"
+    if [ ${SKIPTEST} -eq 0 ]; then
+        BOOT_LOADER_SEARCHED=1
+        CURRENT_BOOT_LOADER=$(${BOOTCTLBINARY} status --no-pager 2>/dev/null | ${AWKBINARY} '/Current Boot Loader/{ getline; print $2 }')
+        if [ "${CURRENT_BOOT_LOADER}" = "systemd-boot" ]; then
+	    Display --indent 2 --text "- Checking systemd-boot presence" --result "${STATUS_FOUND}" --color GREEN
+            LogText "Result: found systemd-boot"
+            BOOT_LOADER="systemd-boot"
+            BOOT_LOADER_FOUND=1
         fi
     fi
 #
@@ -304,7 +332,7 @@
                 LogText "Result: GRUB has password protection."
                 AddHP 4 4
             else
-                Display --indent 4 --text "- Checking for password protection" --result "${STATUS_WARNING}" --color RED
+                Display --indent 4 --text "- Checking for password protection" --result "${STATUS_NONE}" --color RED
                 LogText "Result: Didn't find hashed password line in GRUB boot file!"
                 ReportSuggestion ${TEST_NO} "Set a password on GRUB bootloader to prevent altering boot configuration (e.g. boot in single user mode without password)"
                 AddHP 0 2
@@ -536,7 +564,7 @@
             LogText "Result: systemctl binary found, trying that to discover information"
             # Running services
             LogText "Searching for running services (systemctl services only)"
-            FIND=$(${SYSTEMCTLBINARY} --full --type=service | ${AWKBINARY} '{ if ($4=="running") { print $1 } }' | ${AWKBINARY} -F. '{ print $1 }')
+            FIND=$(${SYSTEMCTLBINARY} --no-legend --full --type=service --state=running | ${AWKBINARY} -F.service '{ print $1 }')
             COUNT=0
             Report "running_service_tool=systemctl"
             for ITEM in ${FIND}; do
@@ -544,14 +572,14 @@
                 Report "running_service[]=${ITEM}"
                 COUNT=$((COUNT + 1))
             done
-            LogText "Note: Run systemctl --full --type=service to see all services"
+            LogText "Hint: Run systemctl --full --type=service to see all services"
             Display --indent 2 --text "- Check running services (systemctl)" --result "${STATUS_DONE}" --color GREEN
             Display --indent 8 --text "Result: found ${COUNT} running services"
             LogText "Result: Found ${COUNT} enabled services"
 
             # Services at boot
             LogText "Searching for enabled services (systemctl services only)"
-            FIND=$(${SYSTEMCTLBINARY} list-unit-files --type=service | ${SORTBINARY} -u | ${AWKBINARY} '{ if ($2=="enabled") { print $1 } }' | ${AWKBINARY} -F. '{ print $1 }')
+            FIND=$(${SYSTEMCTLBINARY} list-unit-files --no-legend --type=service --state=enabled | ${SORTBINARY} -u | ${AWKBINARY} -F.service '{ print $1 }')
             COUNT=0
             Report "boot_service_tool=systemctl"
             for ITEM in ${FIND}; do
@@ -559,7 +587,7 @@
                 Report "boot_service[]=${ITEM}"
                 COUNT=$((COUNT + 1))
             done
-            LogText "Note: Run systemctl list-unit-files --type=service to see all services"
+            LogText "Hint: Run systemctl list-unit-files --type=service to see all services"
             Display --indent 2 --text "- Check enabled services at boot (systemctl)" --result "${STATUS_DONE}" --color GREEN
             Display --indent 8 --text "Result: found ${COUNT} enabled services"
             LogText "Result: Found ${COUNT} running services"
@@ -795,7 +823,7 @@
         if [ -f ${ROOTDIR}usr/lib/systemd/system/rescue.service ]; then
             LogText "Result: file /usr/lib/systemd/system/rescue.service"
             LogText "Test: checking presence sulogin for single user mode"
-            FIND=$(${EGREPBINARY} "^ExecStart=-(/bin/sh -c \")?(/usr)?/(s)?bin/sulogin" ${ROOTDIR}usr/lib/systemd/system/rescue.service)
+            FIND=$(${EGREPBINARY} "^ExecStart=.*sulogin" ${ROOTDIR}usr/lib/systemd/system/rescue.service)
             if [ ! -z "${FIND}" ]; then
                 FOUND=1
                 LogText "Result: found sulogin, so single user is protected"
@@ -808,6 +836,120 @@
             fi
         else
             LogText "Result: file ${ROOTDIR}usr/lib/systemd/system/rescue.service does not exist"
+        fi
+    fi
+#
+#################################################################################
+#
+    # Test        : BOOT-5262
+    # Description : Check for OpenBSD boot daemons
+    Register --test-no BOOT-5262 --os OpenBSD --weight L --network NO --category security --description "Check for OpenBSD boot daemons"
+    if [ ${SKIPTEST} -eq 0 ]; then
+        if HasData "${RCCTLBINARY}"; then
+            LogText "Result: rcctl binary found, trying that to discover information"
+            # OpenBSD (Ask rcctl(8) for running daemons)
+            LogText "Searching for running daemons (rcctl)"
+            FIND=$(${RCCTLBINARY} ls started)
+            COUNT=0
+            Report "running_service_tool=rcctl"
+            for ITEM in ${FIND}; do
+                LogText "Found running daemon: ${ITEM}"
+                Report "running_service[]=${ITEM}"
+                COUNT=$((COUNT + 1 ))
+            done
+            LogText "Note: Run rcctl ls all | egrep  '^(pf|check_quotas|library_aslr)$' to see all daemons"
+            Display --indent 2 --text "- Check running daemons (rcctl)" --result "${STATUS_DONE}" --color GREEN
+            Display --indent 8 --text "Result: found ${COUNT} running daemons"
+            LogText "Result: Found ${COUNT} running daemons"
+
+            # OpenBSD (Ask rcctl(8) for enabled daemons)
+            LogText "Searching for enabled daemons (rcctl)"
+            FIND=$(${RCCTLBINARY} ls on | ${EGREPBINARY} -v '^(pf|check_quotas|library_aslr)$')
+            COUNT=0
+            Report "boot_service_tool=rcctl"
+            for ITEM in ${FIND}; do
+                LogText "Found enabled daemon at boot: ${ITEM}"
+                Report "boot_service[]=${ITEM}"
+                COUNT=$((COUNT + 1 ))
+            done
+            LogText "Note: Run rcctl ls all | egrep  '^(pf|check_quotas|library_aslr)$' to see all daemons"
+            Display --indent 2 --text "- Check enabled daemons at boot (rcctl)" --result "${STATUS_DONE}" --color GREEN
+            Display --indent 8 --text "Result: found ${COUNT} enabled daemons at boot"
+            LogText "Result: Found ${COUNT} enabled daemons at boot"
+        fi
+    fi
+#
+#################################################################################
+#
+    # Test        : BOOT-5263
+    # Description : Check OpenBSD world writable startup scripts
+    Register --test-no BOOT-5263 --os OpenBSD --weight L --network NO --category security --description "Check permissions for boot files/scripts"
+    if [ ${SKIPTEST} -eq 0 ]; then
+        FOUND=0
+        CHECKDIR="${ROOTDIR}etc/rc.d"
+        LogText "Result: checking ${ROOTDIR}etc/rc.d scripts for writable bit"
+        LogText "Test: checking if directory ${DIR} exists"
+        if [ -d ${CHECKDIR} ]; then
+            LogText "Result: directory ${DIR} found"
+            LogText "Test: checking for available files in directory"
+            # OpenBSD uses symlinks to create another instance of daemons
+            FIND=$(${FINDBINARY} ${CHECKDIR} \( -type f -o -type l \) -print | ${SORTBINARY})
+            if [ ! -z "${FIND}" ]; then
+                LogText "Result: found files in directory, checking permissions now"
+                for FILE in ${FIND}; do
+                    LogText "Test: checking permissions of file ${FILE}"
+                    ShowSymlinkPath "${FILE}"
+                    if [ ${FOUNDPATH} -eq 1 ]; then
+                        CHECKFILE="${SYMLINK}"
+                        LogText "Result: found the path behind this symlink (${CHECKFILE} --> ${FILE})"
+                    else
+                        CHECKFILE="${FILE}"
+                    fi
+                    if IsWorldWritable ${CHECKFILE}; then
+                        FOUND=1
+                        LogText "Result: warning, file ${CHECKFILE} is world writable"
+                    else
+                        LogText "Result: good, file ${CHECKFILE} not world writable"
+                    fi
+                done
+            else
+                LogText "Result: found no files in directory."
+            fi
+        else
+            LogText "Result: directory ${CHECKDIR} not found. Skipping.."
+        fi
+
+        # Other files
+        CHECKFILES="${ROOTDIR}etc/rc ${ROOT}etc/rc.conf ${ROOT}etc/rc.conf.local ${ROOTDIR}etc/rc.local"
+        for I in ${CHECKFILES}; do
+            if [ -f ${I} ]; then
+                ShowSymlinkPath "${I}"
+                if [ ${FOUNDPATH} -eq 1 ]; then
+                    CHECKFILE="${SYMLINK}"
+                    LogText "Result: found the path behind this symlink (${CHECKFILE} --> ${I})"
+                else
+                    CHECKFILE="${I}"
+                fi
+                LogText "Test: Checking ${CHECKFILE} file for writable bit"
+                if IsWorldWritable ${CHECKFILE}; then
+                    FOUND=1
+                    ReportWarning ${TEST_NO} "Found writable startup script ${CHECKFILE}"
+                    LogText "Result: warning, file ${CHECKFILE} is world writable"
+                else
+                    LogText "Result: good, file ${CHECKFILE} not world writable"
+                fi
+            fi
+        done
+
+        # Check results
+        if [ ${FOUND} -eq 1 ]; then
+            Display --indent 2 --text "- Check startup files (permissions)" --result "${STATUS_WARNING}" --color RED
+            ReportWarning ${TEST_NO} "Found world writable startup scripts" "-" "-"
+            LogText "Result: found one or more scripts which are possibly writable by other users"
+            AddHP 0 3
+        else
+            Display --indent 2 --text "- Check startup files (permissions)" --result "${STATUS_OK}" --color GREEN
+            AddHP 3 3
         fi
     fi
 #

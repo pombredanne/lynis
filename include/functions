@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2007-2017, CISOfy
+# Copyright 2007-2019, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -68,6 +68,7 @@
 #    IsWorldWritable            Check if a file is world writable
 #    LogText                    Log text strings to logfile, prefixed with date/time
 #    LogTextBreak               Insert a separator in log file
+#    PackageIsInstalled         Test for installed package
 #    ParseNginx                 Parse nginx configuration lines
 #    ParseProfiles              Parse all available profiles
 #    ParseTestValues            Parse a set of values
@@ -804,11 +805,28 @@
     # Name        : GetHostID()
     # Description : Create an unique id for the system
     #
-    # Returns     : Nothing
+    # Returns     : 0 = fetched or created IDs, 1 = failed, 2 = skipped
     # Usage       : GetHostID
     ################################################################################
 
     GetHostID() {
+
+        if [ ${SKIP_GETHOSTID} -eq 1 ]; then
+            return 2
+        fi
+
+        if [ ! -z "${HOSTID}" -a ! -z "${HOSTID2}" ]; then
+            Debug "Skipping creation of host identifiers, as they are already configured (via profile)"
+            return 2
+        fi
+
+        if [ -f "${ROOTDIR}etc/lynis/hostids" ]; then
+            Debug "Used hostids file to fetch values"
+            HOSTID=$(grep "^hostid=" ${ROOTDIR}etc/lynis/hostids | awk -F= '{print $2}')
+            HOSTID2=$(grep "^hostid2=" ${ROOTDIR}etc/lynis/hostids | awk -F= '{print $2}')
+            return 0
+        fi
+
         FIND=""
         # Avoid some hashes (empty, only zeros)
         BLACKLISTED_HASHES="6ef1338f520d075957424741d7ed35ab5966ae97 adc83b19e793491b1c6ea0fd8b46cd9f32e592fc"
@@ -881,12 +899,15 @@
                 ;;
 
                 "Linux")
-                    # Define preferred interfaces
-                    #PREFERRED_INTERFACES="eth0 eth1 eth2 enp0s25"
 
-                    # Only use ifconfig if no ip binary has been found
-                    if [ ! "${IFCONFIGBINARY}" = "" ]; then
-                        # Determine if we have ETH0 at all (not all Linux distro have this, e.g. Arch)
+                    # Future change
+                    # Show brief output of ip of links that are UP. Filter out items like 'UNKNOWN' in col 2
+                    # Using the {2} syntax does not work on all systems
+                    # ip -br link show up | sort | awk '$2=="UP" && $3 ~ /^[a-f0-9][a-f0-9]:/ {print $3}'
+
+                    # Use ifconfig
+                    if [ ! -z "${IFCONFIGBINARY}" ]; then
+                        # Determine if we have the eth0 interface (not all Linux distro have this, e.g. Arch)
                         HASETH0=$(${IFCONFIGBINARY} | grep "^eth0")
                         # Check if we can find it with HWaddr on the line
                         FIND=$(${IFCONFIGBINARY} 2> /dev/null | grep "^eth0" | grep -v "eth0:" | grep HWaddr | awk '{ print $5 }' | tr '[:upper:]' '[:lower:]')
@@ -912,21 +933,20 @@
                                 LogText "GetHostID: No eth0 found (but HWaddr was found), using first network interface to determine hostid, with ifconfig"
                             fi
                         fi
-                    else
-                        # See if we can use ip binary instead
-                        if [ ! "${IPBINARY}" = "" ]; then
-                            # Determine if we have the common available eth0 interface
-                            FIND=$(${IPBINARY} addr show eth0 2> /dev/null | egrep "link/ether " | head -1 | awk '{ print $2 }' | tr '[:upper:]' '[:lower:]')
+
+                    elif [ ! -z "${IPBINARY}" ]; then
+                        # Determine if we have the common available eth0 interface
+                        FIND=$(${IPBINARY} addr show eth0 2> /dev/null | egrep "link/ether " | head -1 | awk '{ print $2 }' | tr '[:upper:]' '[:lower:]')
+                        if IsEmpty "${FIND}"; then
+                            # Determine the MAC address of first interface with the ip command
+                            FIND=$(${IPBINARY} addr show 2> /dev/null | egrep "link/ether " | head -1 | awk '{ print $2 }' | tr '[:upper:]' '[:lower:]')
                             if IsEmpty "${FIND}"; then
-                                # Determine the MAC address of first interface with the ip command
-                                FIND=$(${IPBINARY} addr show 2> /dev/null | egrep "link/ether " | head -1 | awk '{ print $2 }' | tr '[:upper:]' '[:lower:]')
-                                if IsEmpty "${FIND}"; then
-                                    ReportException "GetHostID" "Can't create hostid (no MAC addresses found)"
-                                fi
+                                ReportException "GetHostID" "Can't create hostid (no MAC addresses found)"
                             fi
-                        else
-                            ReportException "GetHostID" "Can't create hostid, missing both ifconfig and ip binary"
                         fi
+                    else
+                        ReportException "GetHostID" "Both ip and ifconfig tools are missing"
+
                     fi
 
                     # Check if we found a HostID
@@ -1097,13 +1117,15 @@
                 LogText "Hash (hostname): ${HASH_HOSTNAME}"
                 LogText "Hash (ssh or machineid): ${HASH2}"
                 HOSTID2="${HASH2}"
-                Report "hostid2=${HOSTID2}"
             fi
         fi
 
         # Show an exception if no HostID could be created, to ensure each system (and scan) has one
-        if [ "${HOSTID}" = "" ]; then
+        if [ -z "${HOSTID}" ]; then
             ReportException "GetHostID" "No unique host identifier could be created."
+            return 1
+        elif [ ! -z "${HOSTID2}" ]; then
+            return 0
         fi
     }
 
@@ -1253,6 +1275,7 @@
     # Description : Check if a process is running
     # Returns     : 0 (process is running), 1 (process not running)
     #               RUNNING (1 = running, 0 = not running) - will be deprecated
+    # Notes       : PSOPTIONS are declared globally, to prevent testing each call
     ################################################################################
 
     IsRunning() {
@@ -1273,11 +1296,20 @@
 
         if [ -z "${search}" ]; then ExitFatal "Missing process to search for when using IsRunning function"; fi
         RUNNING=0
-        if [ ! -z "${PGREPBINARY}" ]; then
+        # AIX does not fully support pgrep options, so using ps instead
+        if [ ! -z "${PGREPBINARY}" -a ! "${OS}" = "AIX" ]; then
             FIND=$(${PGREPBINARY} ${pgrep_options} "${search}" | ${TRBINARY} '\n' ' ')
         else
-            PSOPTIONS=" -o args="
-            if [ ${SHELL_IS_BUSYBOX} -eq 0 ]; then PSOPTIONS=" -o args= -C ${search}"; fi
+            if [ -z "${PSOPTIONS}" ]; then
+                PSOPTIONS=" -o args="
+                if [ ${SHELL_IS_BUSYBOX} -eq 0 ]; then
+                    case "${OS}" in
+                        "Linux")
+                            PSOPTIONS=" -o args= -C ${search}"
+                        ;;
+                    esac
+                fi
+            fi
             FIND=$(${PSBINARY} ${PSOPTIONS} | egrep "( |/)${search}" | grep -v "grep")
         fi
 
@@ -1373,8 +1405,12 @@
         ISVIRTUALMACHINE=2; VMTYPE="unknown"; VMFULLTYPE="Unknown"
         SHORT=""
 
+        if [ ${SKIP_VM_DETECTION} -eq 1 ]; then
+            return 2
+        fi
+
         # lxc environ detection
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             if [ -f /proc/1/environ ]; then
                 FIND=$(grep -qa 'container=lxc' /proc/1/environ 2> /dev/null)
                 if [ $? -eq 0 ]; then
@@ -1387,7 +1423,7 @@
         fi
 
         # facter
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             if [ -x /usr/bin/facter ] || [ -x /usr/local/bin/facter ]; then
                 case "$(facter is_virtual)" in
                 "true")
@@ -1406,11 +1442,11 @@
         fi
 
         # systemd
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             if [ -x /usr/bin/systemd-detect-virt ]; then
                 LogText "Test: trying to guess virtualization technology with systemd-detect-virt"
                 FIND=$(/usr/bin/systemd-detect-virt)
-                if [ ! "${FIND}" = "" ]; then
+                if [ ! -z "${FIND}" ]; then
                     LogText "Result: found ${FIND}"
                     SHORT="${FIND}"
                 fi
@@ -1423,11 +1459,11 @@
 
         # lscpu
         # Values: VMware
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             if [ -x /usr/bin/lscpu ]; then
                 LogText "Test: trying to guess virtualization with lscpu"
                 FIND=$(lscpu | grep -i "^Hypervisor Vendor" | awk -F: '{ print $2 }' | sed 's/ //g')
-                if [ ! "${FIND}" = "" ]; then
+                if [ ! -z "${FIND}" ]; then
                     LogText "Result: found ${FIND}"
                     SHORT="${FIND}"
                 else
@@ -1442,7 +1478,7 @@
 
         # dmidecode
         # Values: VMware Virtual Platform / VirtualBox
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             if [ -x /usr/bin/dmidecode ]; then DMIDECODE_BINARY="/usr/bin/dmidecode"
             elif [ -x /usr/sbin/dmidecode ]; then DMIDECODE_BINARY="/usr/sbin/dmidecode"
             else
@@ -1451,7 +1487,7 @@
             if [ ! "${DMIDECODE_BINARY}" = "" -a ${PRIVILEGED} -eq 1 ]; then
                 LogText "Test: trying to guess virtualization with dmidecode"
                 FIND=$(/usr/sbin/dmidecode -s system-product-name | awk '{ print $1 }')
-                if [ ! "${FIND}" = "" ]; then
+                if [ ! -z "${FIND}" ]; then
                     LogText "Result: found ${FIND}"
                     SHORT="${FIND}"
                 else
@@ -1468,26 +1504,25 @@
         # < needs snippet >
 
         # Try common guest processes
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             LogText "Test: trying to guess virtual machine type by running processes"
 
             # VMware
-                IsRunning vmware-guestd
-                if [ ${RUNNING} -eq 1 ]; then SHORT="vmware"; fi
-                IsRunning vmtoolsd
-                if [ ${RUNNING} -eq 1 ]; then SHORT="vmware"; fi
+            if IsRunning vmware-guestd; then SHORT="vmware"
+            elif IsRunning vmtoolsd; then SHORT="vmware"
+            fi
 
             # VirtualBox based on guest services
-                IsRunning vboxguest-service
-                if [ ${RUNNING} -eq 1 ]; then SHORT="virtualbox"; fi
-                IsRunning VBoxClient
-                if [ ${RUNNING} -eq 1 ]; then SHORT="virtualbox"; fi
+            if IsRunning vboxguest-service; then SHORT="virtualbox"
+            elif IsRunning VBoxClient; then SHORT="virtualbox"
+            elif IsRunning VBoxService; then SHORT="virtualbox"
+            fi
         else
             LogText "Result: skipped processes test, as we already found platform"
         fi
 
         # Amazon EC2
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             LogText "Test: checking specific files for Amazon"
             if [ -f /etc/ec2_version -a -s /etc/ec2_version ]; then
                 SHORT="amazon-ec2"
@@ -1499,7 +1534,7 @@
         fi
 
         # sysctl values
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             LogText "Test: trying to guess virtual machine type by sysctl keys"
 
             # FreeBSD: hw.hv_vendor (remains empty for VirtualBox)
@@ -1514,7 +1549,7 @@
         fi
 
         # lshw
-        if [ "${SHORT}" = "" ]; then
+        if [ -z "${SHORT}" ]; then
             if [ ${PRIVILEGED} -eq 1 ]; then
                 if [ -x /usr/bin/lshw ]; then
                     LogText "Test: trying to guess virtualization with lshw"
@@ -1536,7 +1571,7 @@
         # Check if we caught some string along all tests
         if [ ! "${SHORT}" = "" ]; then
             # Lowercase and see if we found a match
-            SHORT=$(echo ${SHORT} | awk '{ print $1 }' | tr [[:upper:]] [[:lower:]])
+            SHORT=$(echo ${SHORT} | awk '{ print $1 }' | tr '[:upper:]' '[:lower:]')
 
                 case ${SHORT} in
                     amazon-ec2)         ISVIRTUALMACHINE=1; VMTYPE="amazon-ec2";      VMFULLTYPE="Amazon AWS EC2 Instance"                 ;;
@@ -1676,6 +1711,49 @@
             CDATE=$(date "+%Y-%m-%d %H:%M:%S")
             echo "${CDATE} ===---------------------------------------------------------------===" >> ${LOGFILE}
         fi
+    }
+
+
+    ################################################################################
+    # Name        : PackageIsInstalled()
+    # Description : Determines if a package is installed
+    # Returns     : exit code
+    # Notes       : this function is not used yet, but created in advance to allow
+    #               the addition of support for all operating systems
+    ################################################################################
+
+    PackageIsInstalled() {
+        exit_code=255
+
+        if [ $# -eq 1 ]; then
+            package="$1"
+        else
+            Fatal "Incorrect usage of PackageIsInstalled function"
+        fi
+
+        if [ ! -z "${DNFBINARY}" ]; then
+            output=$(${DNFBINARY} --quiet --cacheonly --noplugins --assumeno info --installed ${package} > /dev/null 2>&1)
+            exit_code=$?
+        elif [ ! -z "${DPKGBINARY}" ]; then
+            output=$(${DPKGBINARY} -l ${package} 2> /dev/null | ${GREPBINARY} "^ii")
+            exit_code=$?
+        elif [ ! -z "${EQUERYBINARY}" ]; then
+            output=$(${EQUERYBINARY} --quiet ${package} > /dev/null 2>&1)
+            exit_code=$?  # 0=package installed, 3=package not installed
+        elif [ ! -z "${PKG_BINARY}" ]; then
+            output=$(${PKG_BINARY} -N info ${package} >/dev/null 2>&1)
+            exit_code=$?  # 0=package installed, 70=invalid package
+        elif [ ! -z "${RPMBINARY}" ]; then
+            output=$(${RPMBINARY} --quiet -q ${package} > /dev/null 2>&1)
+            exit_code=$?
+        elif [ ! -z "${ZYPPERBINARY}" ]; then
+            output=$(${ZYPPERBINARY} --quiet --non-interactive search --installed -i ${PACKAGE} 2> /dev/null | grep "^i")
+            if [ ! -z "${output}" ]; then exit_code=0; else exit_code=1; fi
+        else
+            ReportException "PackageIsInstalled:01"
+        fi
+
+        return ${exit_code}
     }
 
 
@@ -2135,11 +2213,15 @@
         if [ ${SKIPTEST} -eq 0 -a "${TEST_WEIGHT}" = "H" -a "${SCAN_TEST_HEAVY}" = "NO" ]; then SKIPTEST=1; SKIPREASON="Test to system intensive for scan mode (H)"; fi
         if [ ${SKIPTEST} -eq 0 -a "${TEST_WEIGHT}" = "M" -a "${SCAN_TEST_MEDIUM}" = "NO" ]; then SKIPTEST=1; SKIPREASON="Test to system intensive for scan mode (M)"; fi
 
-        # Skip test if OS is different than requested
-        if [ ${SKIPTEST} -eq 0 -a ! -z "${TEST_NEED_OS}" -a ! "${OS}" = "${TEST_NEED_OS}" ]; then
-            SKIPTEST=1; SKIPREASON="Incorrect guest OS (${TEST_NEED_OS} only)"
-            if [ ${LOG_INCORRECT_OS} -eq 0 ]; then
-                SKIPLOGTEST=1
+        # Test if our OS is the same as the requested OS (can be multiple values)
+        if [ ${SKIPTEST} -eq 0 -a ! -z "${TEST_NEED_OS}" ]; then
+            HASMATCH=0
+            for I in ${TEST_NEED_OS}; do
+                if [ "${I}" = "${OS}" ]; then HASMATCH=1; fi
+            done
+            if [ ${HASMATCH} -eq 0 ]; then
+                SKIPTEST=1; SKIPREASON="Incorrect guest OS (${TEST_NEED_OS} only)"
+                if [ ${LOG_INCORRECT_OS} -eq 0 ]; then SKIPLOGTEST=1; fi
             fi
         fi
 
@@ -2152,7 +2234,7 @@
         if [ ${SKIPTEST} -eq 0 -a ! -z "${TEST_NEED_PLATFORM}" -a ! "${HARDWARE}" = "${TEST_NEED_PLATFORM}" ]; then SKIPTEST=1; SKIPREASON="Incorrect hardware platform"; fi
 
         # Not all prerequisites met, like missing tool
-        if [ ${SKIPTEST} -eq 0 -a "${PREQS_MET}" = "NO" ]; then SKIPTEST=1; if [ -z "${SKIPREASON}" ]; then SKIPREASON="Prerequisities not met (ie missing tool, other type of Linux distribution)"; fi; fi
+        if [ ${SKIPTEST} -eq 0 -a "${PREQS_MET}" = "NO" ]; then SKIPTEST=1; if [ -z "${SKIPREASON}" ]; then SKIPREASON="Prerequisites not met (ie missing tool, other type of Linux distribution)"; fi; fi
 
         # Skip if a test is root only and we are running a non-privileged test
         if [ ${SKIPTEST} -eq 0 -a ${ROOT_ONLY} -eq 1 -a ! ${MYID} = "0" ]; then
@@ -2793,9 +2875,9 @@
             STRING=""
             RETVAL=1
             # Check if this test is on the list to skip
-            for I in ${SKIP_TESTS}; do
+            for item in ${SKIP_TESTS}; do
                 STRING=$(echo $1 | tr '[:lower:]' '[:upper:]')
-                if [ "${I}" = "${STRING}" ]; then RETVAL=0; LogText "Atomic test ($1) skipped by configuration (skip-test)"; fi
+                if [ "${item}" = "${STRING}" ]; then RETVAL=0; LogText "Atomic test ($1) skipped by configuration (skip-test)"; fi
             done
         else
             ReportException "SkipAtomicTest()" "Function called without right number of arguments (1)"
@@ -2940,7 +3022,6 @@
 
     ViewCategories() {
         for CATEGORY in ${TEST_AVAILABLE_CATEGORIES}; do echo "${CATEGORY}"; done
-        echo ""
         ExitClean
     }
 
@@ -2955,13 +3036,11 @@
     ################################################################################
 
     ViewGroups() {
-        if [ ! "${INCLUDEDIR}" = "" ]; then
-            InsertSection "Available test groups"
+        if [ ! -z "${INCLUDEDIR}" ]; then
             for I in $(ls ${INCLUDEDIR}/tests_* | xargs -n 1 basename | sed 's/tests_//' | grep -v "custom.template"); do
               echo "${I}"
             done
         fi
-        echo ""
         ExitClean
     }
 
@@ -2997,18 +3076,16 @@
         else
             LogText "${FUNCNAME}: checking value for application ${APP}"
             LogText "${FUNCNAME}: ${OPTION} is set to ${1}"
-
-
             LogText "${FUNCNAME}: check if ${1} is equal to ${2}"
 
-            if [ "$1" == "$2" ]; then
+            if [ "$1" = "$2" ]; then
                 LogText "${FUNCNAME}: ${1} is equal to ${2}"
                 RETVAL=0
             fi
 
             if ! [ -z ${3+x} ]; then
                 LogText "${FUNCNAME}: ${1} is equal to ${3}"
-                if [ "$2" == "$3" ]; then
+                if [ "$2" = "$3" ]; then
                     LogText "${FUNCNAME}: ${OPTION} is equal to ${3}"
                     RETVAL=1
                 fi
@@ -3173,4 +3250,4 @@
 
 #================================================================================
 # Lynis is part of Lynis Enterprise and released under GPLv3 license
-# Copyright 2007-2017 - Michael Boelen, CISOfy - https://cisofy.com
+# Copyright 2007-2019 - Michael Boelen, CISOfy - https://cisofy.com

@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2007-2017, CISOfy
+# Copyright 2007-2019, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -330,7 +330,7 @@
                 Report "vulnerable_package[]=${ITEM}"
                 AddHP 1 2
             done
-            ReportWarning "${TEST_NO}" "Vulnerable packages found" "arch-audit has output" "text:Update packages with pacman -Suy"
+            ReportWarning "${TEST_NO}" "Vulnerable packages found" "arch-audit has output" "text:Run arch-audit to see the output, and when needed update the packages with pacman -Suy"
         fi
     fi
 #
@@ -344,7 +344,7 @@
         COUNT=0
         PACKAGE_AUDIT_TOOL_FOUND=1
         PACKAGE_AUDIT_TOOL="zypper"
-        FIND=$(${ZYPPERBINARY} -n se -t package -i | ${AWKBINARY} '{ if ($1=="i") { print $3 } }')
+        FIND=$(${ZYPPERBINARY} --non-interactive -n se -t package -i | ${AWKBINARY} '{ if ($1=="i") { print $3 } }')
         if [ ! -z "${FIND}" ]; then
             for PKG in ${FIND}; do
                 COUNT=$((COUNT + 1))
@@ -365,7 +365,7 @@
     if [ ! -z "${ZYPPERBINARY}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
     Register --test-no PKGS-7330 --preqs-met ${PREQS_MET} --weight L --network NO --category security --description "Querying Zypper for vulnerable packages"
     if [ ${SKIPTEST} -eq 0 ]; then
-        FIND=$(${ZYPPERBINARY} -n pchk | ${GREPBINARY} "(0 security patches)")
+        FIND=$(${ZYPPERBINARY} --non-interactive pchk | ${GREPBINARY} "(0 security patches)")
         if [ ! -z "${FIND}" ]; then
             LogText "Result: No security updates found with Zypper"
             Display --indent 2 --text "- Using Zypper to find vulnerable packages" --result "${STATUS_NONE}" --color GREEN
@@ -374,7 +374,7 @@
             LogText "Result: Zypper found one or more installed packages which are vulnerable."
             ReportWarning ${TEST_NO} "Found one or more vulnerable packages installed"
             # Unfortunately zypper does not properly give back which package it is. Usually best guess is last word on the line
-            FIND=$(${ZYPPERBINARY} -n lp | ${AWKBINARY} '{ if ($5=="security" || $7=="security") { print $NF }}' | ${SEDBINARY} 's/:$//' | ${GREPBINARY} -v "^$" | ${SORTBINARY} -u)
+            FIND=$(${ZYPPERBINARY} --non-interactive lp | ${AWKBINARY} '{ if ($5=="security" || $7=="security") { print $NF }}' | ${SEDBINARY} 's/:$//' | ${GREPBINARY} -v "^$" | ${SORTBINARY} -u)
             LogText "List of vulnerable packages/version:"
             for PKG in ${FIND}; do
                 VULNERABLE_PACKAGES_FOUND=1
@@ -808,7 +808,7 @@
     Register --test-no PKGS-7383 --preqs-met ${PREQS_MET} --os Linux --weight M --network NO --category security --description "Check for YUM package update management"
     if [ ${SKIPTEST} -eq 0 ]; then
         LogText "Test: YUM package update management"
-        FIND=$(${YUMBINARY} repolist 2>/dev/null | ${GREPBINARY} repolist | ${SEDBINARY} 's/ //g' | ${SEDBINARY} 's/[,.]//g' | ${AWKBINARY} -F ":" '{print $2}' | ${EGREPBINARY} "^[0-9]+$")
+        FIND=$(${YUMBINARY} repolist 2>/dev/null | ${GREPBINARY} repolist | ${SEDBINARY} 's/[[:blank:]]//g' | ${SEDBINARY} 's/[,.]//g' | ${AWKBINARY} -F ":" '{print $2}' | ${EGREPBINARY} "^[0-9]+$")
         if [ -z "${FIND}" -o "${FIND}" = "0" ]; then
             LogText "Result: YUM package update management failed"
             Display --indent 2 --text "- YUM package management consistency" --result "${STATUS_WARNING}" --color RED
@@ -826,11 +826,12 @@
     if [ ! -z "${YUMBINARY}" -a -z "${DNFBINARY}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
     Register --test-no PKGS-7384 --preqs-met ${PREQS_MET} --os Linux --weight L --network NO --category security --description "Check for YUM utils package"
     if [ ${SKIPTEST} -eq 0 ]; then
-        if [ -x ${ROOTDIR}usr/bin/package-cleanup ]; then
-            LogText "Result: found YUM utils package (${ROOTDIR}usr/bin/package-cleanup)"
+        # package-cleanup tool can be found in different locations
+        if [ -x ${ROOTDIR}bin/package-cleanup -o -x ${ROOTDIR}usr/bin/package-cleanup ]; then
+            LogText "Result: found YUM utils package (package-cleanup)"
             # Check for duplicates
             LogText "Test: Checking for duplicate packages"
-            FIND=$(${ROOTDIR}usr/bin/package-cleanup -q --dupes > /dev/null; echo $?)
+            FIND=$(package-cleanup -q --dupes > /dev/null; echo $?)
             if [ "${FIND}" = "0" ]; then
                 LogText "Result: No duplicate packages found"
                 Display --indent 2 --text "- Checking package database duplicates" --result "${STATUS_OK}" --color GREEN
@@ -843,7 +844,7 @@
 
             # Check for package database problems
             LogText "Test: Checking for database problems"
-            FIND=$(${ROOTDIR}usr/bin/package-cleanup --problems > /dev/null; echo $?)
+            FIND=$(package-cleanup --problems > /dev/null; echo $?)
             if [ "${FIND}" = "0" ]; then
                 LogText "Result: No package database problems found"
                 Display --indent 2 --text "- Checking package database for problems" --result "${STATUS_OK}" --color GREEN
@@ -929,7 +930,6 @@
                     AddHP 1 2
                 done
                 ReportWarning ${TEST_NO} "Found one or more vulnerable packages."
-                ReportSuggestion ${TEST_NO} "Use 'yum --security update' to update your system"
             fi
         else
             LogText "Result: yum-security package not found"
@@ -992,7 +992,7 @@
         if [ ${OPTION_DEBIAN_SKIP_SECURITY_REPOSITORY} -eq 0 ]; then
             if [ -f ${ROOTDIR}etc/apt/sources.list ]; then
                 LogText "Searching for security.debian.org/security.ubuntu.com or security repositories in /etc/apt/sources.list file"
-                FIND=$(${EGREPBINARY} "security.debian.org|security.ubuntu.com|security " ${ROOTDIR}etc/apt/sources.list | ${GREPBINARY} -v '#' | ${SEDBINARY} 's/ /!space!/g')
+                FIND=$(${EGREPBINARY} "security.debian.org|security.ubuntu.com|security/? " ${ROOTDIR}etc/apt/sources.list | ${GREPBINARY} -v '#' | ${SEDBINARY} 's/ /!space!/g')
                 if [ ! -z "${FIND}" ]; then
                     FOUND=1
                     Display --indent 2 --text "- Checking security repository in sources.list file" --result "${STATUS_OK}" --color GREEN
@@ -1005,7 +1005,7 @@
             fi
             if [ -d /etc/apt/sources.list.d ]; then
                 LogText "Searching for security.debian.org/security.ubuntu.com or security repositories in /etc/apt/sources.list.d directory"
-                FIND=$(${EGREPBINARY} -r "security.debian.org|security.ubuntu.com|security " /etc/apt/sources.list.d | ${GREPBINARY} -v '#' | ${SEDBINARY} 's/ /!space!/g')
+                FIND=$(${EGREPBINARY} -r "security.debian.org|security.ubuntu.com|security/? " /etc/apt/sources.list.d | ${GREPBINARY} -v '#' | ${SEDBINARY} 's/ /!space!/g')
                 if [ ! -z "${FIND}" ]; then
                     FOUND=1
                     Display --indent 2 --text "- Checking security repository in sources.list.d directory" --result "${STATUS_OK}" --color GREEN
@@ -1054,7 +1054,8 @@
 #
     # Test        : PKGS-7392
     # Description : Check Debian/Ubuntu vulnerable packages
-    if [ -x ${ROOTDIR}usr/bin/apt-get ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
+    # Note        : Skip for zypper-based systems
+    if [ -x ${ROOTDIR}usr/bin/apt-get -a -z "${ZYPPERBINARY}" ]; then PREQS_MET="YES"; else PREQS_MET="NO"; fi
     Register --test-no PKGS-7392 --os Linux --preqs-met ${PREQS_MET} --root-only YES --weight L --network YES --category security --description "Check for Debian/Ubuntu security updates"
     if [ ${SKIPTEST} -eq 0 ]; then
         VULNERABLE_PACKAGES_FOUND=0
@@ -1246,8 +1247,20 @@
     Register --test-no PKGS-7410 --weight L --network NO --category security --description "Count installed kernel packages"
     if [ ${SKIPTEST} -eq 0 ]; then
         KERNELS=0
-        if [ ! -z "${RPMBINARY}" ]; then
-            LogText "Test: Checking how many kernel packages are installed"
+        LogText "Test: Checking how many kernel packages are installed"
+
+        if [ ! -z "${DPKGBINARY}" ]; then
+            KERNELS=$(${DPKGBINARY} -l 2> /dev/null | ${GREPBINARY} "linux-image-[0-9]" | ${WCBINARY} -l)
+            if [ ${KERNELS} -eq 0 ]; then
+                LogText "Result: found no kernels from dpkg -l output, which is unexpected"
+                ReportException "KRNL-5840:2" "Could not find any kernel packages from DPKG output"
+            elif [ ${KERNELS} -gt 5 ]; then
+                LogText "Result: found more than 5 kernel packages on the system, which might indicate lack of regular cleanups"
+                ReportSuggestion "${TEST_NO}" "Remove any unneeded kernel packages" "${KERNELS} kernels" "text:validate dpkg -l output and perform cleanup with apt autoremove"
+            else
+                LogText "Result: found ${KERNELS} kernel packages on the system, which is fine"
+            fi
+        elif [ ! -z "${RPMBINARY}" ]; then
             KERNELS=$(${RPMBINARY} -q kernel 2> /dev/null | ${WCBINARY} -l)
             if [ ${KERNELS} -eq 0 ]; then
                 LogText "Result: found no kernels from rpm -q kernel output, which is unexpected"
@@ -1255,16 +1268,78 @@
             elif [ ${KERNELS} -gt 5 ]; then
                 LogText "Result: found more than 5 kernel packages on the system, which might indicate lack of regular cleanups"
                 ReportSuggestion "${TEST_NO}" "Remove any unneeded kernel packages with package-cleanup utility (--old-kernels)"
-                AddHP 4 5
             else
-                LogText "Result: found ${KERNELS} on the system, which is fine"
-                AddHP 1 1
+                LogText "Result: found ${KERNELS} kernel packages on the system, which is fine"
             fi
         fi
+
+        Report "installed_kernel_packages=${KERNELS}"
     fi
 #
 #################################################################################
 #
+    # Test        : PKGS-7420
+    # Description : Detect toolkit to automatically download and apply upgrades
+    Register --test-no PKGS-7420 --weight L --network NO --category security --description "Detect toolkit to automatically download and apply upgrades"
+    if [ ${SKIPTEST} -eq 0 ]; then
+        UNATTENDED_UPGRADES_TOOLKIT=0
+        UNATTENDED_UPGRADES_TOOL=""
+        UNATTENDED_UPGRADES_OPTION_AVAILABLE=0
+
+        case "${OS}" in
+            "Linux")
+                case "${LINUX_VERSION}" in
+                    "CentOS" | "Debian" | "Fedora" | "RHEL" | "Ubuntu")
+
+                        UNATTENDED_UPGRADES_OPTION_AVAILABLE=1
+                        # Test available tools for Linux
+                        if [ -f "${ROOTDIR}bin/auter" ]; then
+                            UNATTENDED_UPGRADES_TOOL="auter"
+                            UNATTENDED_UPGRADES_TOOLKIT=1
+                            LogText "Result: found ${UNATTENDED_UPGRADES_TOOL}"
+                            Report "unattended_upgrade_tool[]=${UNATTENDED_UPGRADES_TOOL}"
+                        fi
+                        if [ -f "${ROOTDIR}sbin/yum-cron" ]; then
+                            UNATTENDED_UPGRADES_TOOL="yum-cron"
+                            UNATTENDED_UPGRADES_TOOLKIT=1
+                            LogText "Result: found ${UNATTENDED_UPGRADES_TOOL}"
+                            Report "unattended_upgrade_tool[]=${UNATTENDED_UPGRADES_TOOL}"
+                        fi
+                        if [ -f "${ROOTDIR}usr/bin/dnf-automatic" ]; then
+                            UNATTENDED_UPGRADES_TOOL="dnf-automatic"
+                            UNATTENDED_UPGRADES_TOOLKIT=1
+                            LogText "Result: found ${UNATTENDED_UPGRADES_TOOL}"
+                            Report "unattended_upgrade_tool[]=${UNATTENDED_UPGRADES_TOOL}"
+                        fi
+                        if [ -f "${ROOTDIR}usr/bin/unattended-upgrade" ]; then
+                            UNATTENDED_UPGRADES_TOOL="unattended-upgrade"
+                            UNATTENDED_UPGRADES_TOOLKIT=1
+                            LogText "Result: found ${UNATTENDED_UPGRADES_TOOL}"
+                            Report "unattended_upgrade_tool[]=${UNATTENDED_UPGRADES_TOOL}"
+                        fi
+                    ;;
+                esac
+            ;;
+        esac
+
+        if [ ${UNATTENDED_UPGRADES_OPTION_AVAILABLE} -eq 1 ]; then
+            if [ ${UNATTENDED_UPGRADES_TOOLKIT} -eq 1 ]; then
+                AddHP 5 5
+                Display --indent 2 --text "- Toolkit for automatic upgrades (${UNATTENDED_UPGRADES_TOOL})" --result "${STATUS_FOUND}" --color GREEN
+            else
+                AddHP 1 5
+                Display --indent 2 --text "- Toolkit for automatic upgrades" --result "${STATUS_NOTFOUND}" --color YELLOW
+                LogText "Result: no toolkit for automatic updates discovered"
+                ReportSuggestion "${TEST_NO}" "Consider using a tool to automatically apply upgrades"
+            fi
+        fi
+
+        Report "unattended_upgrade_option_available=${UNATTENDED_UPGRADES_OPTION_AVAILABLE}"
+    fi
+#
+#################################################################################
+#
+
 
 if [ ! -z "${INSTALLED_PACKAGES}" ]; then Report "installed_packages_array=${INSTALLED_PACKAGES}"; fi
 

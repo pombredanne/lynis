@@ -6,7 +6,7 @@
 # ------------------
 #
 # Copyright 2007-2013, Michael Boelen
-# Copyright 2007-2017, CISOfy
+# Copyright 2007-2019, CISOfy
 #
 # Website  : https://cisofy.com
 # Blog     : http://linux-audit.com
@@ -27,7 +27,7 @@
     PUPPET_MASTER_RUNNING=0
     SALT_MASTER_RUNNING=0
     SALT_MINION_RUNNING=0
-    IPS_TOOL_FOUND=0
+    IDS_IPS_TOOL_FOUND=0
     FAIL2BAN_FOUND=0
     FAIL2BAN_EMAIL=0
     FAIL2BAN_SILENT=0
@@ -358,6 +358,23 @@
                 fi
                 SNORT=$(which snort 2> /dev/null)
             fi
+        fi
+    fi
+#
+#################################################################################
+#
+    # Test        : TOOL-5160
+    # Description : Check for OSSEC
+    Register --test-no TOOL-5126 --weight L --network NO --category security --description "Check for active OSSEC analysis daemon"
+    if [ ${SKIPTEST} -eq 0 ]; then
+
+        if IsRunning "ossec-analysisd"; then
+            IDS_IPS_TOOL_FOUND=1
+            LogText "Result: OSSEC analysis daemon is active"
+            Report "ids_ips_tooling[]=ossec"
+            Display --indent 2 --text "- Checking presence of OSSEC" --result "${STATUS_FOUND}" --color GREEN
+        else
+            LogText "Result: OSSEC analysis daemon not active"
         fi
     fi
 #
